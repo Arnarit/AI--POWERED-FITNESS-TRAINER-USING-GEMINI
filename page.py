@@ -24,6 +24,8 @@ elif st.session_state.current_page == 2:
     st.title("Page 2")
     st.write("This is the second page!")
     if st.button("Previous"):
-        previous_page()
+        previous_page() 
+
+
 
 
