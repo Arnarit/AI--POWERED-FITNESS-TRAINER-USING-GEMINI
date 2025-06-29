@@ -278,60 +278,6 @@ def reset_chat():
         safe_cleanup_dir(FAISS_INDEX_PATH)
 
 
-# --- Langchain PDF Functions --- (Keep as is)
-def get_pdf_text(pdf_docs):
-    """Extracts text from a list of uploaded PDF files."""
-    text = ""
-    for pdf in pdf_docs:
-        try:
-            pdf_reader = PdfReader(pdf)
-            if not pdf_reader.pages:
-                 st.warning(f"⚠️ PDF '{pdf.name}' contains no pages or could not be read.")
-                 continue
-            for i, page in enumerate(pdf_reader.pages):
-                try:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n" # Add newline between pages
-                    # else:
-                    #     st.warning(f"⚠️ No text extracted from page {i+1} of '{pdf.name}' (might be image-based).")
-                except Exception as page_e:
-                     st.warning(f"⚠️ Error extracting text from page {i+1} of '{pdf.name}': {page_e}")
-        except Exception as e:
-            st.warning(f"⚠️ Could not read PDF '{pdf.name}': {e}. Skipping.")
-    return text
-
-def get_text_chunks(text):
-    """Splits text into manageable chunks."""
-    if not text or not text.strip():
-        return []
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=8000, # Slightly smaller chunk size might be more robust
-        chunk_overlap=1000,
-        length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-def get_vector_store(text_chunks):
-    """Creates and saves a FAISS vector store from text chunks."""
-    if not text_chunks:
-        st.warning("⚠️ No text chunks available to create vector store.")
-        return False
-    try:
-        # Ensure the base directory exists
-        if os.path.exists(FAISS_INDEX_PATH):
-             safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
-        os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
-
-        vector_store = FAISS.from_texts(text_chunks, embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004" , google_api_key=API_KEY))
-        vector_store.save_local(FAISS_INDEX_PATH)
-        st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
-        return True
-    except Exception as e:
-        st.error(f"🔴 Error creating/saving vector store: {e}")
-        safe_cleanup_dir(FAISS_INDEX_PATH) # Attempt cleanup on failure
-        return False
 
 def get_conversational_chain():
     """Creates the Langchain QA chain with a specific prompt."""
@@ -934,6 +880,61 @@ except Exception as e:
 st.header(f" {st.session_state.app_mode}")
 st.markdown("---")
 
+# --- Langchain PDF Functions --- (Keep as is)
+def get_pdf_text(pdf_docs):
+    """Extracts text from a list of uploaded PDF files."""
+    text = ""
+    for pdf in pdf_docs:
+        try:
+            pdf_reader = PdfReader(pdf)
+            if not pdf_reader.pages:
+                 st.warning(f"⚠️ PDF '{pdf.name}' contains no pages or could not be read.")
+                 continue
+            for i, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n" # Add newline between pages
+                    # else:
+                    #     st.warning(f"⚠️ No text extracted from page {i+1} of '{pdf.name}' (might be image-based).")
+                except Exception as page_e:
+                     st.warning(f"⚠️ Error extracting text from page {i+1} of '{pdf.name}': {page_e}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not read PDF '{pdf.name}': {e}. Skipping.")
+    return text
+
+def get_text_chunks(text):
+    """Splits text into manageable chunks."""
+    if not text or not text.strip():
+        return []
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=8000, # Slightly smaller chunk size might be more robust
+        chunk_overlap=1000,
+        length_function=len
+    )
+    chunks = text_splitter.split_text(text)
+    return chunks
+
+def get_vector_store(text_chunks):
+    """Creates and saves a FAISS vector store from text chunks."""
+    if not text_chunks:
+        st.warning("⚠️ No text chunks available to create vector store.")
+        return False
+    try:
+        # Ensure the base directory exists
+        if os.path.exists(FAISS_INDEX_PATH):
+             safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
+        os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
+
+        vector_store = FAISS.from_texts(text_chunks, embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004" , google_api_key=API_KEY))
+        vector_store.save_local(FAISS_INDEX_PATH)
+        st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
+        return True
+    except Exception as e:
+        st.error(f"🔴 Error creating/saving vector store: {e}")
+        safe_cleanup_dir(FAISS_INDEX_PATH) # Attempt cleanup on failure
+        return False
+        
 # Image Uploader for Chat & Image Mode
 if st.session_state.app_mode == "💬 General Chat & Image":
     uploaded_image_file = st.file_uploader(
