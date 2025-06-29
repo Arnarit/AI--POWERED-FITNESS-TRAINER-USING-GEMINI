@@ -9,14 +9,10 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
-from dotenv import load_dotenv
 import tempfile
 import time
 import io
 import shutil # For robust directory cleanup
-
-# Load environment variables from .env file (optional, for local development)
-load_dotenv()
 
 # --- Constants ---
 FAISS_INDEX_PATH = "faiss_index"
@@ -655,14 +651,15 @@ with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
     st.markdown("---")
 
-    # --- UPDATED: API Key Input ---
+    # --- API Key Input ---
     st.markdown("### 🔑 API Configuration")
-    # Check for key in .env or session state for convenience
     
+    # The input field's value is now controlled ONLY by the session state.
+    # It will be empty on the first run of a new session.
     api_key_input = st.text_input(
         "Enter your Google API Key",
         type="password",
-        value=default_key,
+        value=st.session_state.get("GOOGLE_API_KEY", ""),
         help="Get your key from https://aistudio.google.com/app/apikey"
     )
 
@@ -767,7 +764,7 @@ with st.sidebar:
     st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
 
 
-# --- UPDATED: API Key Check and Model Initialization ---
+# --- API Key Check and Model Initialization ---
 # This acts as a gatekeeper. The app will not run until a valid API key is provided.
 if not st.session_state.get("GOOGLE_API_KEY"):
     st.error("🔴 Please enter your Google API Key in the sidebar to start.")
@@ -780,8 +777,8 @@ try:
     genai.configure(api_key=API_KEY)
 
     # Initialize models now that we have a key
-    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
+    base_model = genai.GenerativeModel("gemini-1.5-flash-latest")
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=API_KEY)
     embedding_model_name = "models/text-embedding-004"
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
 
@@ -863,7 +860,6 @@ elif st.session_state.app_mode == "🎬 Video Analysis":
          st.success(f"✅ Video '{os.path.basename(st.session_state.uploaded_video_uri)}' is ready. Ask questions about it.")
 elif st.session_state.app_mode == "💬 General Chat & Image":
     st.info("ℹ️ Ask general fitness/health questions, or upload an image above for analysis.")
-    
     
     
     
