@@ -15,37 +15,14 @@ import time
 import io
 import shutil # For robust directory cleanup
 
-# --- Environment Setup ---
+# Load environment variables from .env file (optional, for local development)
 load_dotenv()
-API_KEY = os.getenv("GOOGLE_API_KEY")
-if not API_KEY:
-    st.error("🔴 GOOGLE_API_KEY environment variable not set. Please configure it in your .env file or environment.")
-    st.stop()
-try:
-    genai.configure(api_key=API_KEY)
-except Exception as e:
-    st.error(f"🔴 Error configuring Google AI. Check API Key validity and permissions: {e}")
-    st.stop()
 
 # --- Constants ---
 FAISS_INDEX_PATH = "faiss_index"
-# List explicitly supported video MIME types by Gemini API (refer to documentation for updates)
-# Common types usually include: video/mp4, video/mpeg, video/mov, video/avi, video/x-flv, video/x-ms-wmv, video/webm, video/quicktime
+# List explicitly supported video MIME types by Gemini API
 SUPPORTED_VIDEO_TYPES = ["mp4", "mpeg", "mov", "avi", "x-flv", "x-ms-wmv", "webm", "quicktime", "mpg", "wmv", "flv"]
 SUPPORTED_VIDEO_MIMETYPES = [f"video/{ext}" for ext in SUPPORTED_VIDEO_TYPES]
-
-# --- Model Initialization ---
-try:
-    # Model for general text/image/video generation (gemini-2.0-flash is good for multimodal)
-    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
-    # Model specifically for Langchain Q&A chain
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
-    # Model for embeddings
-    embedding_model_name = "models/text-embedding-004" # Or other suitable embedding model
-    embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
-except Exception as e:
-    st.error(f"🔴 Error initializing Generative AI models: {e}")
-    st.stop()
 
 
 # --- CSS Styling ---
@@ -245,16 +222,16 @@ div[data-testid="stChatMessage"]:has(span[data-testid="chatAvatarIcon-assistant"
 
 # --- Session State Initialization ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Namaste! 🙏 How can your AI Fitness Trainer assist you today?"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Namaste! 🙏 Please enter your Google API Key to begin."}]
 if "app_mode" not in st.session_state:
-    st.session_state.app_mode = "💬 General Chat & Image" # Default mode
+    st.session_state.app_mode = "💬 General Chat & Image"
 if "pdf_processed" not in st.session_state:
     st.session_state.pdf_processed = False
-if "video_processed" not in st.session_state: # Indicates local save & ready for API upload
+if "video_processed" not in st.session_state:
     st.session_state.video_processed = False
-if "uploaded_video_uri" not in st.session_state: # Path to local temp video
+if "uploaded_video_uri" not in st.session_state:
     st.session_state.uploaded_video_uri = None
-if "uploaded_video_temp_dir" not in st.session_state: # Path to local temp DIRECTORY
+if "uploaded_video_temp_dir" not in st.session_state:
     st.session_state.uploaded_video_temp_dir = None
 if "chat_image_uploader_key" not in st.session_state:
     st.session_state.chat_image_uploader_key = 0
@@ -271,12 +248,11 @@ def safe_cleanup_dir(dir_path):
     if dir_path and os.path.exists(dir_path):
         try:
             shutil.rmtree(dir_path)
-            # st.toast(f"Cleaned up temporary directory: {os.path.basename(dir_path)}", icon="🧹")
             return True
-        except OSError as e: # Catch potential errors during cleanup
+        except OSError as e:
             st.warning(f"⚠️ Could not completely clean up temporary directory {os.path.basename(dir_path)}: {e}")
             return False
-    return True # Return True if path is None or doesn't exist
+    return True
 
 def reset_chat():
     """Clears chat history and resets related states, including temp files."""
@@ -284,23 +260,16 @@ def reset_chat():
     st.session_state.pdf_processed = False
     st.session_state.video_processed = False
     st.session_state.uploaded_video_uri = None
-    # Clean up the video temp directory
     if "uploaded_video_temp_dir" in st.session_state:
         safe_cleanup_dir(st.session_state.uploaded_video_temp_dir)
         st.session_state.uploaded_video_temp_dir = None
-
     st.session_state.current_chat_image = None
     st.session_state.current_chat_image_parts = None
     st.session_state.chat_image_uploader_key += 1
-
-    # Clear FAISS index
     if os.path.exists(FAISS_INDEX_PATH):
         safe_cleanup_dir(FAISS_INDEX_PATH)
 
-
-# --- Langchain PDF Functions --- (Keep as is)
 def get_pdf_text(pdf_docs):
-    """Extracts text from a list of uploaded PDF files."""
     text = ""
     for pdf in pdf_docs:
         try:
@@ -312,9 +281,7 @@ def get_pdf_text(pdf_docs):
                 try:
                     page_text = page.extract_text()
                     if page_text:
-                        text += page_text + "\n" # Add newline between pages
-                    # else:
-                    #     st.warning(f"⚠️ No text extracted from page {i+1} of '{pdf.name}' (might be image-based).")
+                        text += page_text + "\n"
                 except Exception as page_e:
                      st.warning(f"⚠️ Error extracting text from page {i+1} of '{pdf.name}': {page_e}")
         except Exception as e:
@@ -322,11 +289,10 @@ def get_pdf_text(pdf_docs):
     return text
 
 def get_text_chunks(text):
-    """Splits text into manageable chunks."""
     if not text or not text.strip():
         return []
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=8000, # Slightly smaller chunk size might be more robust
+        chunk_size=8000,
         chunk_overlap=1000,
         length_function=len
     )
@@ -334,27 +300,23 @@ def get_text_chunks(text):
     return chunks
 
 def get_vector_store(text_chunks):
-    """Creates and saves a FAISS vector store from text chunks."""
     if not text_chunks:
         st.warning("⚠️ No text chunks available to create vector store.")
         return False
     try:
-        # Ensure the base directory exists
         if os.path.exists(FAISS_INDEX_PATH):
-             safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
+             safe_cleanup_dir(FAISS_INDEX_PATH)
         os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
-
         vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
         vector_store.save_local(FAISS_INDEX_PATH)
         st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
         return True
     except Exception as e:
         st.error(f"🔴 Error creating/saving vector store: {e}")
-        safe_cleanup_dir(FAISS_INDEX_PATH) # Attempt cleanup on failure
+        safe_cleanup_dir(FAISS_INDEX_PATH)
         return False
 
 def get_conversational_chain():
-    """Creates the Langchain QA chain with a specific prompt."""
     prompt_template = """
         As an fitness trainers you are expert in understanding healthcare domain including medical, medicines, fitness, sports and Brahmacharya.
     You have extreme deep knowledge of medical sciences, Brahmacharya,yoga and exercises, physiological and psychological fitness, spiritual and ayurveda.
@@ -399,7 +361,6 @@ def get_conversational_chain():
 
     Answer should be in between 1000 to 100000 numbers of words:
     """
-
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     try:
         chain = load_qa_chain(langchain_chat_model, chain_type="stuff", prompt=prompt)
@@ -409,81 +370,52 @@ def get_conversational_chain():
         return None
 
 def handle_pdf_query(user_question):
-    """Processes a user query against the loaded PDF vector store."""
     if not os.path.exists(FAISS_INDEX_PATH) or not os.listdir(FAISS_INDEX_PATH):
         st.error("🔴 FAISS index not found or is empty. Please process PDF documents first using the sidebar.")
         return "Error: Document index not available. Please process PDFs via the sidebar."
     if not user_question:
         st.warning("⚠️ Please enter a question about the processed PDFs.")
         return None
-
     try:
         st.info("🔍 Searching PDF index...")
         vector_store = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
-        docs = vector_store.similarity_search(user_question, k=5) # Retrieve top 5 relevant chunks
-
+        docs = vector_store.similarity_search(user_question, k=5)
         if not docs:
             return "I couldn't find information relevant to your question in the processed documents."
-
         chain = get_conversational_chain()
         if not chain:
              return "Error: Could not initialize the analysis chain."
-
         st.info("🧠 Analyzing relevant document sections...")
-        # Using invoke is generally preferred in newer Langchain versions
         response = chain.invoke({"input_documents": docs, "question": user_question})
         output_text = response.get("output_text", "Error: Could not extract response text.")
-
-        # Post-processing check based on rules (if chain doesn't enforce perfectly)
         if "answer is not available in the provided document context" in output_text.lower() and len(output_text) < 100:
              return "The answer to your question is not available in the provided document context."
-        # Add other rule checks here if necessary
-
         return output_text
-
     except Exception as e:
         st.error(f"🔴 Error during PDF query processing: {e}")
         if "Index doesn't look like a FAISS index" in str(e) or "FileNotFoundError" in str(e):
              st.error("🔴 The FAISS index file might be corrupted or missing. Please try processing the PDFs again.")
         return "An error occurred while searching the documents."
 
-
-# --- Gemini API Call Functions --- (Text/Image remains the same)
 def get_gemini_response_text_image(system_prompt: str, text_input: str = None, image_parts: list = None):
-    """Gets response from Gemini for text and optional image using a system prompt."""
     content_request = []
-
-    # Add system prompt as initial instruction (if model supports system prompts)
-    # For gemini-2.0-flash, it's often better to include instructions within the user message block
-    # Let's prepend the system prompt to the text input or use it alone if only image exists
-
     current_input = ""
     if text_input:
         current_input = f"{system_prompt}\n\n--- User Query ---\n{text_input}"
-    elif image_parts: # Only image provided
+    elif image_parts:
         current_input = f"{system_prompt}\n\n--- Task ---\nAnalyze the provided image based on the instructions above."
     else:
-        return "Please provide text input or upload an image to get a response." # No input
-
-    # Add image parts first if they exist
+        return "Please provide text input or upload an image to get a response."
     if image_parts:
         content_request.extend(image_parts)
-
-    # Add the combined text input (prompt + user query)
     content_request.append(current_input)
-
     if not content_request:
          return "Internal error: No content generated for API request."
-
     try:
-        
-        # Use the base_model (gemini-2.0-flash)
-        response = base_model.generate_content(content_request,
-                                               request_options={"timeout": 300}) # 5 min timeout for text/image
+        response = base_model.generate_content(content_request, request_options={"timeout": 300})
         return response.text
     except Exception as e:
         st.error(f"🔴 Error communicating with Gemini API: {e}")
-        # Add specific error checks
         if "API key not valid" in str(e):
             st.error("🔴 API Key Error: Please check if your GOOGLE_API_KEY is correct and enabled.")
         elif "quota" in str(e).lower():
@@ -496,106 +428,65 @@ def get_gemini_response_text_image(system_prompt: str, text_input: str = None, i
              st.error(f"🔴 Unknown API Error: {e}")
         return "Sorry, I encountered an error trying to generate a response."
 
-# --- VIDEO ANALYSIS FUNCTION (REVISED AND MORE ROBUST) ---
 def get_gemini_response_video(prompt_instructions: str, video_uri: str, user_question: str):
-    """
-    Analyzes a video using Gemini API with robust polling and error handling.
-
-    Args:
-        prompt_instructions (str): System prompt/instructions for the analysis.
-        video_uri (str): The *local* file path to the video.
-        user_question (str): The specific question asked by the user about the video.
-
-    Returns:
-        str: The analysis result or an error message.
-    """
     if not video_uri or not os.path.exists(video_uri):
         return "❌ Error: Video file path is invalid or file does not exist. Please re-upload."
     if not user_question:
         return "⚠️ Please ask a specific question about the video."
-
-    video_file_api = None # To store the genai.File object
+    video_file_api = None
     progress_bar = st.progress(0, text="Initiating video upload...")
-    analysis_placeholder = st.empty() # Placeholder for status updates
-
+    analysis_placeholder = st.empty()
     try:
-        # === 1. Upload the video file to Google API ===
         analysis_placeholder.info(f"⏳ Uploading '{os.path.basename(video_uri)}' to Google API...")
         video_file_api = genai.upload_file(path=video_uri)
         progress_bar.progress(20, text="Upload initiated. Waiting for API processing...")
         analysis_placeholder.info(f"✅ Upload initiated. File Name: {video_file_api.name}. Waiting for processing...")
-
-        # === 2. Poll for API processing completion ===
         polling_start_time = time.time()
-        timeout_seconds = 600 # 10 minutes timeout for API processing
-        poll_interval = 15 # Check status every 15 seconds
-        max_retries = 3 # Max retries on polling error
+        timeout_seconds = 600
+        poll_interval = 15
+        max_retries = 3
         retries = 0
-
         while True:
             current_time = time.time()
             if current_time - polling_start_time > timeout_seconds:
                 raise TimeoutError(f"Video processing timed out after {timeout_seconds} seconds.")
-
             try:
                 video_file_api = genai.get_file(video_file_api.name)
                 file_state = video_file_api.state.name
-                retries = 0 # Reset retries on successful poll
-
+                retries = 0
                 if file_state == "ACTIVE":
                     progress_bar.progress(60, text="Video processed by API. Ready for analysis.")
                     analysis_placeholder.success("✅ Video processing complete.")
-                    break # Exit polling loop
+                    break
                 elif file_state == "FAILED":
                     raise ValueError(f"Google API failed to process the video. State: {file_state}. Reason: {getattr(video_file_api, 'error', 'Unknown')}")
                 elif file_state == "PROCESSING":
                     elapsed_time = int(current_time - polling_start_time)
-                    progress = 20 + int(40 * elapsed_time / timeout_seconds) # Rough progress estimate (20-60%)
+                    progress = 20 + int(40 * elapsed_time / timeout_seconds)
                     progress_bar.progress(min(progress, 59), text=f"API processing video... ({elapsed_time}s elapsed)")
                     analysis_placeholder.info(f"⏳ API processing video... State: {file_state} ({elapsed_time}s elapsed)")
                 else:
-                    # Handle unexpected states if any
                     analysis_placeholder.warning(f"⏳ Video in unexpected state: {file_state}. Continuing to poll...")
-
             except Exception as poll_e:
                 retries += 1
                 st.warning(f"⚠️ Error polling video status ({retries}/{max_retries}): {poll_e}. Retrying in {poll_interval}s...")
                 if retries >= max_retries:
                     raise ConnectionError(f"Failed to get video status after {max_retries} retries: {poll_e}") from poll_e
-                # Wait before retrying poll
                 time.sleep(poll_interval)
-                continue # Continue to next polling attempt
-
-            # Wait before next poll if still processing
+                continue
             time.sleep(poll_interval)
-
-
-        # === 3. Generate content using the processed video ===
         progress_bar.progress(70, text="Sending analysis request to Gemini...")
         analysis_placeholder.info("🧠 Generating analysis based on video and question...")
-
-        # Construct the prompt for the API call
-        full_prompt_content = [
-            prompt_instructions, # System instructions first
-            user_question,       # Then the user's question
-            video_file_api       # Finally, the processed video file object
-        ]
-
-        # Increased timeout for the generation step itself
-        response = base_model.generate_content(
-            full_prompt_content,
-            request_options={"timeout": 900} # 15 minutes timeout for analysis call
-        )
-
+        full_prompt_content = [prompt_instructions, user_question, video_file_api]
+        response = base_model.generate_content(full_prompt_content, request_options={"timeout": 900})
         progress_bar.progress(100, text="Analysis complete!")
         analysis_placeholder.success("✅ Analysis received from Gemini.")
-        time.sleep(1) # Keep success message visible briefly
+        time.sleep(1)
         return response.text
-
     except TimeoutError as e:
         st.error(f"🔴 Timeout Error: {e}")
         return f"Error: Video processing took too long ({timeout_seconds}s limit). Please try a shorter video or try again later."
-    except ValueError as e: # Catch specific processing failure
+    except ValueError as e:
         st.error(f"🔴 Processing Error: {e}")
         return f"Error: The video could not be processed by the API. It might be corrupted or in an unsupported format."
     except ConnectionError as e:
@@ -603,7 +494,6 @@ def get_gemini_response_video(prompt_instructions: str, video_uri: str, user_que
          return "Error: Could not reliably check video processing status. Please check your connection and try again."
     except Exception as e:
         st.error(f"🔴 Unexpected Error during video analysis: {e}")
-        # Check for common API errors explicitly
         if "API key not valid" in str(e):
             st.error("🔴 API Key Error: Please check if your GOOGLE_API_KEY is correct and enabled.")
         elif "quota" in str(e).lower():
@@ -612,11 +502,8 @@ def get_gemini_response_video(prompt_instructions: str, video_uri: str, user_que
              st.error("🔴 Timeout Error: The analysis request itself timed out.")
         elif "Invalid content" in str(e) or "Unsupported format" in str(e):
              st.error(f"🔴 Content/Format Error: The API rejected the video or request format. Details: {e}")
-        # General error message
         return f"Sorry, an unexpected error occurred during video analysis. Details: {e}"
-
     finally:
-        # === 4. Clean up API-side file artifact ===
         if video_file_api and hasattr(video_file_api, 'name'):
             try:
                 analysis_placeholder.info(f"🧹 Cleaning up API file artifact: {video_file_api.name}...")
@@ -625,101 +512,75 @@ def get_gemini_response_video(prompt_instructions: str, video_uri: str, user_que
                 time.sleep(1)
             except Exception as delete_e:
                 st.warning(f"⚠️ Could not delete API file artifact '{video_file_api.name}': {delete_e}")
-        # Clear progress bar and placeholder
         progress_bar.empty()
         analysis_placeholder.empty()
-        # Note: Local file cleanup is handled by reset_chat or new upload logic
 
-
-# --- Image & Video Setup Functions --- (Keep input_image_setup as is, refine input_video_setup)
 def input_image_setup(uploaded_file):
-    """Processes uploaded image file for Gemini API and displays it."""
     if uploaded_file is not None:
         try:
             bytes_data = uploaded_file.getvalue()
             image_parts = [{"mime_type": uploaded_file.type, "data": bytes_data}]
-            # Store parts and file object in session state
             st.session_state.current_chat_image = uploaded_file
             st.session_state.current_chat_image_parts = image_parts
-            # Display the image
             img = Image.open(io.BytesIO(bytes_data))
             with st.container():
                  st.image(img, caption=f"Uploaded: {uploaded_file.name}", use_column_width='auto')
-                 # st.markdown("---") # Optional separator
-            return image_parts # Return parts for immediate use if needed
+            return image_parts
         except Exception as e:
             st.error(f"🔴 Error processing image '{uploaded_file.name}': {e}")
             st.session_state.current_chat_image = None
             st.session_state.current_chat_image_parts = None
             return None
     else:
-        # Clear state if no file or file removed
-        if st.session_state.current_chat_image: # Only clear if there was an image
+        if st.session_state.current_chat_image:
              st.session_state.current_chat_image = None
              st.session_state.current_chat_image_parts = None
         return None
 
 def input_video_setup(uploaded_file):
-    """Saves uploaded video temporarily, stores paths, returns local path."""
     if uploaded_file is not None:
-        # Clean up any previous temporary directory first
         if "uploaded_video_temp_dir" in st.session_state:
              safe_cleanup_dir(st.session_state.uploaded_video_temp_dir)
              st.session_state.uploaded_video_temp_dir = None
              st.session_state.uploaded_video_uri = None
              st.session_state.video_processed = False
-
         temp_dir = None
         try:
-            # Check mime type if possible (more reliable than extension)
             if uploaded_file.type not in SUPPORTED_VIDEO_MIMETYPES:
                  st.error(f"🔴 Unsupported video format: '{uploaded_file.type}'. Please upload one of: {', '.join(SUPPORTED_VIDEO_TYPES)}")
                  return None
-
-            # Create a new temporary directory
             temp_dir = tempfile.mkdtemp()
             file_extension = os.path.splitext(uploaded_file.name)[1]
             temp_video_path = os.path.join(temp_dir, f"uploaded_video{file_extension}")
-
-            # Write the file
             with open(temp_video_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-
-            # Check file size (optional but recommended)
             file_size_mb = os.path.getsize(temp_video_path) / (1024 * 1024)
-            # Add a reasonable size limit check (e.g., 1GB - check Gemini docs for actual limits)
             max_size_mb = 1000
             if file_size_mb > max_size_mb:
                  st.error(f"🔴 Video file is too large ({file_size_mb:.1f} MB). Maximum allowed size is {max_size_mb} MB.")
-                 safe_cleanup_dir(temp_dir) # Clean up oversized file
+                 safe_cleanup_dir(temp_dir)
                  return None
-
             st.success(f"✅ Video '{uploaded_file.name}' ({file_size_mb:.1f} MB) saved locally.")
-            st.video(temp_video_path) # Display the video
-
-            # Update session state
-            st.session_state.video_processed = True # Ready for API upload
+            st.video(temp_video_path)
+            st.session_state.video_processed = True
             st.session_state.uploaded_video_uri = temp_video_path
-            st.session_state.uploaded_video_temp_dir = temp_dir # Store dir path for cleanup
+            st.session_state.uploaded_video_temp_dir = temp_dir
             return temp_video_path
-
         except Exception as e:
             st.error(f"🔴 Error saving/processing video file: {e}")
             st.session_state.video_processed = False
             st.session_state.uploaded_video_uri = None
-            safe_cleanup_dir(temp_dir) # Attempt cleanup on error
+            safe_cleanup_dir(temp_dir)
             st.session_state.uploaded_video_temp_dir = None
             return None
     else:
-        # Ensure state is cleared if no file uploaded
         st.session_state.video_processed = False
         st.session_state.uploaded_video_uri = None
-        safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir")) # Cleanup if exists
+        safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
         st.session_state.uploaded_video_temp_dir = None
         return None
 
-
-# --- Prompt Templates --- (Keep as is)
+# --- Prompt Templates ---
 TEXT_IMAGE_PROMPT = """
 **User Query:**
     As an fitness trainers you are expert in understanding healthcare domain including medical, medicines, fitness, sports and Brahmacharya.
@@ -736,8 +597,6 @@ TEXT_IMAGE_PROMPT = """
 
     If question is not related to health domain, medical , sports, fitness,yoga or exercises and medicines then say just this line : "Sorry, I am an AI fitness trainer, I can only answer questions
     related to health domain. Please ask a question related to health domain.", don't provide the wrong answer.
-
-    
 
     **(Image Analysis if provided)**:
     
@@ -760,9 +619,6 @@ TEXT_IMAGE_PROMPT = """
 
     **Your Detailed Response:**
 """
-
-
-
 VIDEO_ANALYSIS_PROMPT = """
     Analyze the uploaded video for content and context. As an fitness trainers you are expert in understanding healthcare domain including medical, medicines, fitness, sports and Brahmacharya.
     You have extreme deep knowledge of medical sciences, Brahmacharya,yoga and exercises, physiological and psychological fitness, spiritual and ayurveda.
@@ -786,19 +642,36 @@ VIDEO_ANALYSIS_PROMPT = """
         then say just this line : "Sorry, I am an AI fitness trainer, I can only answer questions
         related to health domain. Please ask a question related to health domain.", don't provide the wrong answer.
                         
-
     Provide a detailed, user-friendly, and actionable response.
     Answers should be written in between 1000 to 100000 numbers of words in any languages based on user input .
 
     **Your Detailed Video-Based Analysis and Response:**
 """
 
-
 # --- Streamlit UI Configuration ---
 
 # --- Sidebar ---
 with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
+    st.markdown("---")
+
+    # --- UPDATED: API Key Input ---
+    st.markdown("### 🔑 API Configuration")
+    # Check for key in .env or session state for convenience
+    default_key = os.getenv("GOOGLE_API_KEY", st.session_state.get("GOOGLE_API_KEY", ""))
+
+    api_key_input = st.text_input(
+        "Enter your Google API Key",
+        type="password",
+        value=default_key,
+        help="Get your key from https://aistudio.google.com/app/apikey"
+    )
+
+    # If the user enters a new key, update the session state
+    if api_key_input and api_key_input != st.session_state.get("GOOGLE_API_KEY"):
+        st.session_state.GOOGLE_API_KEY = api_key_input
+        # Rerun to apply the new key immediately and trigger re-initialization
+        st.rerun()
     st.markdown("---")
 
     # Mode Selection
@@ -811,11 +684,10 @@ with st.sidebar:
     if app_mode != st.session_state.app_mode:
         previous_mode = st.session_state.app_mode
         st.session_state.app_mode = app_mode
-        # Clean up mode-specific data when switching
         st.session_state.current_chat_image = None
         st.session_state.current_chat_image_parts = None
         st.session_state.chat_image_uploader_key += 1
-        if previous_mode == "🎬 Video Analysis": # Clean up video if switching away
+        if previous_mode == "🎬 Video Analysis":
              safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
              st.session_state.uploaded_video_uri = None
              st.session_state.uploaded_video_temp_dir = None
@@ -834,16 +706,11 @@ with st.sidebar:
     - 👀 Image Recognition
     """)
     
-
-    # Conditional Sidebar Options
     if st.session_state.app_mode == "📄 PDF Report Q&A":
         st.markdown("---")
         st.markdown("### 📄 PDF Actions")
         pdf_docs = st.file_uploader(
-            "Upload Medical/Fitness Reports (PDF)",
-            type="pdf",
-            accept_multiple_files=True,
-            key="pdf_uploader"
+            "Upload Medical/Fitness Reports (PDF)", type="pdf", accept_multiple_files=True, key="pdf_uploader"
         )
         if st.button("Process Uploaded PDFs", key="process_pdfs"):
             if pdf_docs:
@@ -854,9 +721,7 @@ with st.sidebar:
                         if text_chunks:
                            if get_vector_store(text_chunks):
                                st.session_state.pdf_processed = True
-                               # Success message shown by get_vector_store
                            else:
-                               # Error message shown by get_vector_store
                                st.session_state.pdf_processed = False
                         else:
                             st.warning("⚠️ No text chunks generated (PDF might be empty or text too short).")
@@ -871,36 +736,27 @@ with st.sidebar:
     elif st.session_state.app_mode == "🎬 Video Analysis":
         st.markdown("---")
         st.markdown("### 🎬 Video Actions")
-        # Check if a video is ALREADY saved locally and ready
         video_ready = (st.session_state.get("video_processed") and
                        st.session_state.get("uploaded_video_uri") and
                        os.path.exists(st.session_state.uploaded_video_uri))
-
         if video_ready:
             st.success(f"Video Ready: {os.path.basename(st.session_state.uploaded_video_uri)}")
-            st.video(st.session_state.uploaded_video_uri) # Show the ready video
+            st.video(st.session_state.uploaded_video_uri)
             if st.button("Upload Different Video", key="upload_new_video"):
-                 # Cleanup handled by input_video_setup when new file is uploaded
-                 # Or explicitly cleanup here before showing uploader again
                  safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
                  st.session_state.video_processed = False
                  st.session_state.uploaded_video_uri = None
                  st.session_state.uploaded_video_temp_dir = None
                  st.rerun()
         else:
-             # Show uploader
              uploaded_video = st.file_uploader(
-                 "Upload Video for Analysis",
-                 type=SUPPORTED_VIDEO_TYPES,
-                 key="video_uploader",
+                 "Upload Video for Analysis", type=SUPPORTED_VIDEO_TYPES, key="video_uploader",
                  help=f"Supported formats: {', '.join(SUPPORTED_VIDEO_TYPES)}. Max size recommended: ~1GB"
              )
              if uploaded_video is not None:
-                  # Process immediately upon upload
                   with st.spinner(f"⏳ Saving & verifying '{uploaded_video.name}'..."):
-                      if input_video_setup(uploaded_video): # Returns path on success
-                           st.rerun() # Rerun to show the "Ready" state and video preview
-                      # Else: input_video_setup shows error message
+                      if input_video_setup(uploaded_video):
+                           st.rerun()
 
     st.markdown("---")
     st.markdown("### ✨ Controls")
@@ -912,95 +768,92 @@ with st.sidebar:
     st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
 
 
+# --- UPDATED: API Key Check and Model Initialization ---
+# This acts as a gatekeeper. The app will not run until a valid API key is provided.
+if not st.session_state.get("GOOGLE_API_KEY"):
+    st.error("🔴 Please enter your Google API Key in the sidebar to start.")
+    st.info("You can obtain a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey).")
+    st.stop()
+
+try:
+    # Use the key from session state to configure the AI models
+    API_KEY = st.session_state.GOOGLE_API_KEY
+    genai.configure(api_key=API_KEY)
+
+    # Initialize models now that we have a key
+    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
+    embedding_model_name = "models/text-embedding-004"
+    embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
+
+except Exception as e:
+    st.error(f"🔴 Error initializing Google AI. Please check your API Key. It might be invalid or have insufficient permissions. Details: {e}")
+    st.stop()
+
+
 # --- Main Chat Area ---
 st.header(f" {st.session_state.app_mode}")
 st.markdown("---")
 
-# Image Uploader for Chat & Image Mode
 if st.session_state.app_mode == "💬 General Chat & Image":
     uploaded_image_file = st.file_uploader(
         "Upload an image for analysis (Optional)",
-        type=["jpeg", "jpg", "png", "webp"], # Added webp
+        type=["jpeg", "jpg", "png", "webp"],
         key=f"chat_image_uploader_{st.session_state.chat_image_uploader_key}"
     )
-    # Process image if newly uploaded or uploader is cleared
     if uploaded_image_file != st.session_state.get("current_chat_image"):
-         input_image_setup(uploaded_image_file) # Handles display and state update
+         input_image_setup(uploaded_image_file)
 
-
-# Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Handle User Input
 if prompt := st.chat_input("Ask your fitness/health question here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate AI response
     with st.chat_message("assistant"):
         response = None
-        # Use a placeholder while generating
         message_placeholder = st.empty()
-        message_placeholder.markdown("🧠 Thinking...") # Initial thinking message
-
+        message_placeholder.markdown("🧠 Thinking...")
         if st.session_state.app_mode == "💬 General Chat & Image":
-            # Use stored image parts if available
             final_image_data = st.session_state.get("current_chat_image_parts")
             response = get_gemini_response_text_image(
-                TEXT_IMAGE_PROMPT,
-                text_input=prompt,
-                image_parts=final_image_data
+                TEXT_IMAGE_PROMPT, text_input=prompt, image_parts=final_image_data
             )
-            # Clear image state *after* use for this prompt, if desired (or keep it for follow-up)
-            # st.session_state.current_chat_image = None
-            # st.session_state.current_chat_image_parts = None
-            # st.session_state.chat_image_uploader_key += 1 # Reset uploader if image should be cleared
-
         elif st.session_state.app_mode == "📄 PDF Report Q&A":
             if st.session_state.pdf_processed:
                 response = handle_pdf_query(prompt)
             else:
                 response = "⚠️ Please upload and process PDF documents first using the sidebar."
-
         elif st.session_state.app_mode == "🎬 Video Analysis":
             video_ready = (st.session_state.get("video_processed") and
                            st.session_state.get("uploaded_video_uri") and
                            os.path.exists(st.session_state.uploaded_video_uri))
             if video_ready:
-                # The video function now handles its own status updates via placeholders
-                message_placeholder.empty() # Remove the "Thinking..." message
+                message_placeholder.empty()
                 response = get_gemini_response_video(
-                    VIDEO_ANALYSIS_PROMPT,
-                    st.session_state.uploaded_video_uri,
-                    prompt
+                    VIDEO_ANALYSIS_PROMPT, st.session_state.uploaded_video_uri, prompt
                 )
             elif not st.session_state.get("uploaded_video_uri"):
                  response = "⚠️ Please upload a video using the sidebar first."
-            else: # URI exists but path invalid or not processed
+            else:
                 response = "⚠️ Video not ready or file path invalid. Please re-upload if necessary."
 
-        # Display the final response
         if response:
-            message_placeholder.markdown(response) # Update placeholder with final response
+            message_placeholder.markdown(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
         else:
-             # Handle cases where response generation failed or was skipped
              error_message = "Could not generate a response. Please check inputs/API key, or try again."
              message_placeholder.warning(error_message)
              st.session_state.messages.append({"role": "assistant", "content": error_message})
-
-
-# Contextual Footer Info
 
 if st.session_state.app_mode == "📄 PDF Report Q&A":
     if not st.session_state.pdf_processed:
         st.info("ℹ️ Upload PDF reports via the sidebar & click 'Process'. Then ask questions.")
     else:
         st.success("✅ PDFs processed. Ask specific questions about the reports.")
-
 elif st.session_state.app_mode == "🎬 Video Analysis":
      video_ready = (st.session_state.get("video_processed") and
                     st.session_state.get("uploaded_video_uri") and
@@ -1009,7 +862,6 @@ elif st.session_state.app_mode == "🎬 Video Analysis":
          st.info("ℹ️ Upload a video via the sidebar. Once ready, ask specific questions.")
      else:
          st.success(f"✅ Video '{os.path.basename(st.session_state.uploaded_video_uri)}' is ready. Ask questions about it.")
-
 elif st.session_state.app_mode == "💬 General Chat & Image":
     st.info("ℹ️ Ask general fitness/health questions, or upload an image above for analysis.")
     
