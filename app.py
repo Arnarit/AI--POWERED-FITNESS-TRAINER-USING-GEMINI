@@ -658,8 +658,7 @@ with st.sidebar:
     # --- UPDATED: API Key Input ---
     st.markdown("### 🔑 API Configuration")
     # Check for key in .env or session state for convenience
-    default_key = os.getenv("GOOGLE_API_KEY", st.session_state.get("GOOGLE_API_KEY", ""))
-
+    
     api_key_input = st.text_input(
         "Enter your Google API Key",
         type="password",
