@@ -9,13 +9,23 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
+from dotenv import load_dotenv
 import tempfile
 import time
 import io
 import shutil # For robust directory cleanup
 
-
-
+# --- Environment Setup ---
+load_dotenv()
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    st.error("🔴 GOOGLE_API_KEY environment variable not set. Please configure it in your .env file or environment.")
+    st.stop()
+try:
+    genai.configure(api_key=API_KEY)
+except Exception as e:
+    st.error(f"🔴 Error configuring Google AI. Check API Key validity and permissions: {e}")
+    st.stop()
 
 # --- Constants ---
 FAISS_INDEX_PATH = "faiss_index"
@@ -24,8 +34,18 @@ FAISS_INDEX_PATH = "faiss_index"
 SUPPORTED_VIDEO_TYPES = ["mp4", "mpeg", "mov", "avi", "x-flv", "x-ms-wmv", "webm", "quicktime", "mpg", "wmv", "flv"]
 SUPPORTED_VIDEO_MIMETYPES = [f"video/{ext}" for ext in SUPPORTED_VIDEO_TYPES]
 
-
-
+# --- Model Initialization ---
+try:
+    # Model for general text/image/video generation (gemini-2.0-flash is good for multimodal)
+    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+    # Model specifically for Langchain Q&A chain
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
+    # Model for embeddings
+    embedding_model_name = "models/text-embedding-004" # Or other suitable embedding model
+    embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
+except Exception as e:
+    st.error(f"🔴 Error initializing Generative AI models: {e}")
+    st.stop()
 
 
 # --- CSS Styling ---
@@ -278,6 +298,60 @@ def reset_chat():
         safe_cleanup_dir(FAISS_INDEX_PATH)
 
 
+# --- Langchain PDF Functions --- (Keep as is)
+def get_pdf_text(pdf_docs):
+    """Extracts text from a list of uploaded PDF files."""
+    text = ""
+    for pdf in pdf_docs:
+        try:
+            pdf_reader = PdfReader(pdf)
+            if not pdf_reader.pages:
+                 st.warning(f"⚠️ PDF '{pdf.name}' contains no pages or could not be read.")
+                 continue
+            for i, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n" # Add newline between pages
+                    # else:
+                    #     st.warning(f"⚠️ No text extracted from page {i+1} of '{pdf.name}' (might be image-based).")
+                except Exception as page_e:
+                     st.warning(f"⚠️ Error extracting text from page {i+1} of '{pdf.name}': {page_e}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not read PDF '{pdf.name}': {e}. Skipping.")
+    return text
+
+def get_text_chunks(text):
+    """Splits text into manageable chunks."""
+    if not text or not text.strip():
+        return []
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=8000, # Slightly smaller chunk size might be more robust
+        chunk_overlap=1000,
+        length_function=len
+    )
+    chunks = text_splitter.split_text(text)
+    return chunks
+
+def get_vector_store(text_chunks):
+    """Creates and saves a FAISS vector store from text chunks."""
+    if not text_chunks:
+        st.warning("⚠️ No text chunks available to create vector store.")
+        return False
+    try:
+        # Ensure the base directory exists
+        if os.path.exists(FAISS_INDEX_PATH):
+             safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
+        os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
+
+        vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+        vector_store.save_local(FAISS_INDEX_PATH)
+        st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
+        return True
+    except Exception as e:
+        st.error(f"🔴 Error creating/saving vector store: {e}")
+        safe_cleanup_dir(FAISS_INDEX_PATH) # Attempt cleanup on failure
+        return False
 
 def get_conversational_chain():
     """Creates the Langchain QA chain with a specific prompt."""
@@ -727,25 +801,6 @@ with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
     st.markdown("---")
 
-    # --- API Key Input ---
-    st.markdown("### 🔑 API Configuration")
-    
-    # The input field's value is now controlled ONLY by the session state.
-    # It will be empty on the first run of a new session.
-    api_key_input = st.text_input(
-        "Enter your Google API Key",
-        type="password",
-        value=st.session_state.get("GOOGLE_API_KEY", ""),
-        help="Get your key from https://aistudio.google.com/app/apikey"
-    )
-
-    # If the user enters a new key, update the session state
-    if api_key_input and api_key_input != st.session_state.get("GOOGLE_API_KEY"):
-        st.session_state.GOOGLE_API_KEY = api_key_input
-        # Rerun to apply the new key immediately and trigger re-initialization
-        st.rerun()
-    st.markdown("---")
-
     # Mode Selection
     app_mode = st.radio(
         "Choose Interaction Mode:",
@@ -856,85 +911,11 @@ with st.sidebar:
     st.markdown("---")
     st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
 
-if not st.session_state.get("GOOGLE_API_KEY"):
-    st.error("🔴 Please enter your Google API Key in the sidebar to start.")
-    st.info("You can obtain a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey).")
-    st.stop()
 
-try:
-    # Use the key from session state to configure the AI models
-    API_KEY = st.session_state.GOOGLE_API_KEY
-    genai.configure(api_key=API_KEY)
-
-    # Initialize models now that we have a key
-    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
-    embedding_model_name = "models/text-embedding-004"
-    embeddings = GoogleGenerativeAIEmbeddings(model= embedding_model_name , google_api_key=API_KEY)
-
-except Exception as e:
-    st.error(f"🔴 Error initializing Google AI. Please check your API Key. It might be invalid or have insufficient permissions. Details: {e}")
-    st.stop()
-    
 # --- Main Chat Area ---
 st.header(f" {st.session_state.app_mode}")
 st.markdown("---")
 
-# --- Langchain PDF Functions --- (Keep as is)
-def get_pdf_text(pdf_docs):
-    """Extracts text from a list of uploaded PDF files."""
-    text = ""
-    for pdf in pdf_docs:
-        try:
-            pdf_reader = PdfReader(pdf)
-            if not pdf_reader.pages:
-                 st.warning(f"⚠️ PDF '{pdf.name}' contains no pages or could not be read.")
-                 continue
-            for i, page in enumerate(pdf_reader.pages):
-                try:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n" # Add newline between pages
-                    # else:
-                    #     st.warning(f"⚠️ No text extracted from page {i+1} of '{pdf.name}' (might be image-based).")
-                except Exception as page_e:
-                     st.warning(f"⚠️ Error extracting text from page {i+1} of '{pdf.name}': {page_e}")
-        except Exception as e:
-            st.warning(f"⚠️ Could not read PDF '{pdf.name}': {e}. Skipping.")
-    return text
-
-def get_text_chunks(text):
-    """Splits text into manageable chunks."""
-    if not text or not text.strip():
-        return []
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=8000, # Slightly smaller chunk size might be more robust
-        chunk_overlap=1000,
-        length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-def get_vector_store(text_chunks):
-    """Creates and saves a FAISS vector store from text chunks."""
-    if not text_chunks:
-        st.warning("⚠️ No text chunks available to create vector store.")
-        return False
-    try:
-        # Ensure the base directory exists
-        if os.path.exists(FAISS_INDEX_PATH):
-             safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
-        os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
-
-        vector_store = FAISS.from_texts(text_chunks, embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004" , google_api_key=API_KEY))
-        vector_store.save_local(FAISS_INDEX_PATH)
-        st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
-        return True
-    except Exception as e:
-        st.error(f"🔴 Error creating/saving vector store: {e}")
-        safe_cleanup_dir(FAISS_INDEX_PATH) # Attempt cleanup on failure
-        return False
-        
 # Image Uploader for Chat & Image Mode
 if st.session_state.app_mode == "💬 General Chat & Image":
     uploaded_image_file = st.file_uploader(
@@ -1032,6 +1013,21 @@ elif st.session_state.app_mode == "🎬 Video Analysis":
 elif st.session_state.app_mode == "💬 General Chat & Image":
     st.info("ℹ️ Ask general fitness/health questions, or upload an image above for analysis.")
     
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
     
     
 
