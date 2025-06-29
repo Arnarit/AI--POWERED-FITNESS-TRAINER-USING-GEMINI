@@ -924,7 +924,7 @@ try:
     base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
     langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
     embedding_model_name = "models/text-embedding-004"
-    embeddings = GoogleGenerativeAIEmbeddings(model=models/text-embedding-004, google_api_key=API_KEY)
+    embeddings = GoogleGenerativeAIEmbeddings(model= models/text-embedding-004, google_api_key=API_KEY)
 
 except Exception as e:
     st.error(f"🔴 Error initializing Google AI. Please check your API Key. It might be invalid or have insufficient permissions. Details: {e}")
