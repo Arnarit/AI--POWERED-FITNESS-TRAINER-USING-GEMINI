@@ -324,7 +324,7 @@ def get_vector_store(text_chunks):
              safe_cleanup_dir(FAISS_INDEX_PATH) # Clear old index first
         os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
 
-        vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+        vector_store = FAISS.from_texts(text_chunks, embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004" , google_api_key=API_KEY))
         vector_store.save_local(FAISS_INDEX_PATH)
         st.success(f"✅ FAISS index created with {len(text_chunks)} chunks.")
         return True
