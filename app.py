@@ -777,8 +777,8 @@ try:
     genai.configure(api_key=API_KEY)
 
     # Initialize models now that we have a key
-    base_model = genai.GenerativeModel("gemini-1.5-flash-latest")
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=API_KEY)
+    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
     embedding_model_name = "models/text-embedding-004"
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
 
