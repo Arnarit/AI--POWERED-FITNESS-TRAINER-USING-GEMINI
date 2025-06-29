@@ -781,6 +781,25 @@ with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
     st.markdown("---")
 
+    # --- API Key Input ---
+    st.markdown("### 🔑 API Configuration")
+    
+    # The input field's value is now controlled ONLY by the session state.
+    # It will be empty on the first run of a new session.
+    api_key_input = st.text_input(
+        "Enter your Google API Key",
+        type="password",
+        value=st.session_state.get("GOOGLE_API_KEY", ""),
+        help="Get your key from https://aistudio.google.com/app/apikey"
+    )
+
+    # If the user enters a new key, update the session state
+    if api_key_input and api_key_input != st.session_state.get("GOOGLE_API_KEY"):
+        st.session_state.GOOGLE_API_KEY = api_key_input
+        # Rerun to apply the new key immediately and trigger re-initialization
+        st.rerun()
+    st.markdown("---")
+
     # Mode Selection
     app_mode = st.radio(
         "Choose Interaction Mode:",
@@ -902,8 +921,8 @@ try:
     genai.configure(api_key=API_KEY)
 
     # Initialize models now that we have a key
-    base_model = genai.GenerativeModel("gemini-1.5-flash-latest")
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=API_KEY)
+    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
     embedding_model_name = "models/text-embedding-004"
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
 
