@@ -245,6 +245,121 @@ if "api_key" not in st.session_state:
 # =====================================================================
 # WRAP THE MAIN APP LOGIC IN THIS IF/ELSE BLOCK
 # =====================================================================
+# --- Sidebar ---
+with st.sidebar:
+    st.title("AI Fitness Trainer 🧘‍♂️")
+    st.markdown("---")
+
+    # Mode Selection
+    app_mode = st.radio(
+        "Choose Interaction Mode:",
+        ("💬 General Chat & Image", "📄 PDF Report Q&A", "🎬 Video Analysis"),
+        key="app_mode_radio",
+        index=["💬 General Chat & Image", "📄 PDF Report Q&A", "🎬 Video Analysis"].index(st.session_state.app_mode)
+    )
+    if app_mode != st.session_state.app_mode:
+        previous_mode = st.session_state.app_mode
+        st.session_state.app_mode = app_mode
+        # Clean up mode-specific data when switching
+        st.session_state.current_chat_image = None
+        st.session_state.current_chat_image_parts = None
+        st.session_state.chat_image_uploader_key += 1
+        if previous_mode == "🎬 Video Analysis": # Clean up video if switching away
+             safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
+             st.session_state.uploaded_video_uri = None
+             st.session_state.uploaded_video_temp_dir = None
+             st.session_state.video_processed = False
+        st.rerun()
+
+    st.markdown("---")
+    st.sidebar.markdown("### ✨ AI Capabilities")
+    st.sidebar.markdown("""
+    - 🏋️ Personalized Recommendations
+    - 🍎 Nutritional Guidance
+    - 🧠 Mental Wellness Support
+    - 🔬 PDF Report Analysis (RAG)
+    - 🎬 Video Content Analysis
+    - 🗣️ Natural Language Chat
+    - 👀 Image Recognition
+    """)
+    
+
+    # Conditional Sidebar Options
+    if st.session_state.app_mode == "📄 PDF Report Q&A":
+        st.markdown("---")
+        st.markdown("### 📄 PDF Actions")
+        pdf_docs = st.file_uploader(
+            "Upload Medical/Fitness Reports (PDF)",
+            type="pdf",
+            accept_multiple_files=True,
+            key="pdf_uploader"
+        )
+        if st.button("Process Uploaded PDFs", key="process_pdfs"):
+            if pdf_docs:
+                with st.spinner("⚙️ Processing PDFs... Extracting text & building index..."):
+                    raw_text = get_pdf_text(pdf_docs)
+                    if raw_text and raw_text.strip():
+                        text_chunks = get_text_chunks(raw_text)
+                        if text_chunks:
+                           if get_vector_store(text_chunks):
+                               st.session_state.pdf_processed = True
+                               # Success message shown by get_vector_store
+                           else:
+                               # Error message shown by get_vector_store
+                               st.session_state.pdf_processed = False
+                        else:
+                            st.warning("⚠️ No text chunks generated (PDF might be empty or text too short).")
+                            st.session_state.pdf_processed = False
+                    else:
+                        st.warning("⚠️ No text could be extracted from the uploaded PDF(s). They might be image-based or corrupted.")
+                        st.session_state.pdf_processed = False
+            else:
+                st.warning("⚠️ Please upload at least one PDF file.")
+                st.session_state.pdf_processed = False
+
+    elif st.session_state.app_mode == "🎬 Video Analysis":
+        st.markdown("---")
+        st.markdown("### 🎬 Video Actions")
+        # Check if a video is ALREADY saved locally and ready
+        video_ready = (st.session_state.get("video_processed") and
+                       st.session_state.get("uploaded_video_uri") and
+                       os.path.exists(st.session_state.uploaded_video_uri))
+
+        if video_ready:
+            st.success(f"Video Ready: {os.path.basename(st.session_state.uploaded_video_uri)}")
+            st.video(st.session_state.uploaded_video_uri) # Show the ready video
+            if st.button("Upload Different Video", key="upload_new_video"):
+                 # Cleanup handled by input_video_setup when new file is uploaded
+                 # Or explicitly cleanup here before showing uploader again
+                 safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
+                 st.session_state.video_processed = False
+                 st.session_state.uploaded_video_uri = None
+                 st.session_state.uploaded_video_temp_dir = None
+                 st.rerun()
+        else:
+             # Show uploader
+             uploaded_video = st.file_uploader(
+                 "Upload Video for Analysis",
+                 type=SUPPORTED_VIDEO_TYPES,
+                 key="video_uploader",
+                 help=f"Supported formats: {', '.join(SUPPORTED_VIDEO_TYPES)}. Max size recommended: ~1GB"
+             )
+             if uploaded_video is not None:
+                  # Process immediately upon upload
+                  with st.spinner(f"⏳ Saving & verifying '{uploaded_video.name}'..."):
+                      if input_video_setup(uploaded_video): # Returns path on success
+                           st.rerun() # Rerun to show the "Ready" state and video preview
+                      # Else: input_video_setup shows error message
+
+    st.markdown("---")
+    st.markdown("### ✨ Controls")
+    if st.button("Clear Chat History", key="clear_chat", type="secondary"):
+        reset_chat()
+        st.rerun()
+
+    st.markdown("---")
+    st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
+    
 if st.session_state.api_key:
     # Everything from "Model Initialization" to the very end of the script
     # should be indented under this "if" statement.
@@ -805,139 +920,7 @@ if st.session_state.api_key:
     
     # --- Streamlit UI Configuration ---
     
-    # --- Sidebar ---
-    with st.sidebar:
-        st.title("AI Fitness Trainer 🧘‍♂️")
-        st.markdown("---")
-    
-        # NEW SECTION FOR API KEY INPUT
-        st.header("🔑 API Configuration")
-        api_key_input = st.text_input(
-            "Enter your Google API Key", 
-            type="password", 
-            key="api_key_input",
-            help="You can get your key from Google AI Studio."
-        )
-    
-        if api_key_input:
-            st.session_state.api_key = api_key_input
-            st.success("API Key saved for this session!")
-            # Optional: you could add a button to clear the key
-            # if st.button("Clear API Key"):
-            #     del st.session_state.api_key
-            #     st.rerun()
-    
-        st.markdown("---")
-    
-        # Mode Selection
-        app_mode = st.radio(
-            "Choose Interaction Mode:",
-            ("💬 General Chat & Image", "📄 PDF Report Q&A", "🎬 Video Analysis"),
-            key="app_mode_radio",
-            index=["💬 General Chat & Image", "📄 PDF Report Q&A", "🎬 Video Analysis"].index(st.session_state.app_mode)
-        )
-        if app_mode != st.session_state.app_mode:
-            previous_mode = st.session_state.app_mode
-            st.session_state.app_mode = app_mode
-            # Clean up mode-specific data when switching
-            st.session_state.current_chat_image = None
-            st.session_state.current_chat_image_parts = None
-            st.session_state.chat_image_uploader_key += 1
-            if previous_mode == "🎬 Video Analysis": # Clean up video if switching away
-                 safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
-                 st.session_state.uploaded_video_uri = None
-                 st.session_state.uploaded_video_temp_dir = None
-                 st.session_state.video_processed = False
-            st.rerun()
-    
-        st.markdown("---")
-        st.sidebar.markdown("### ✨ AI Capabilities")
-        st.sidebar.markdown("""
-        - 🏋️ Personalized Recommendations
-        - 🍎 Nutritional Guidance
-        - 🧠 Mental Wellness Support
-        - 🔬 PDF Report Analysis (RAG)
-        - 🎬 Video Content Analysis
-        - 🗣️ Natural Language Chat
-        - 👀 Image Recognition
-        """)
-        
-    
-        # Conditional Sidebar Options
-        if st.session_state.app_mode == "📄 PDF Report Q&A":
-            st.markdown("---")
-            st.markdown("### 📄 PDF Actions")
-            pdf_docs = st.file_uploader(
-                "Upload Medical/Fitness Reports (PDF)",
-                type="pdf",
-                accept_multiple_files=True,
-                key="pdf_uploader"
-            )
-            if st.button("Process Uploaded PDFs", key="process_pdfs"):
-                if pdf_docs:
-                    with st.spinner("⚙️ Processing PDFs... Extracting text & building index..."):
-                        raw_text = get_pdf_text(pdf_docs)
-                        if raw_text and raw_text.strip():
-                            text_chunks = get_text_chunks(raw_text)
-                            if text_chunks:
-                               if get_vector_store(text_chunks):
-                                   st.session_state.pdf_processed = True
-                                   # Success message shown by get_vector_store
-                               else:
-                                   # Error message shown by get_vector_store
-                                   st.session_state.pdf_processed = False
-                            else:
-                                st.warning("⚠️ No text chunks generated (PDF might be empty or text too short).")
-                                st.session_state.pdf_processed = False
-                        else:
-                            st.warning("⚠️ No text could be extracted from the uploaded PDF(s). They might be image-based or corrupted.")
-                            st.session_state.pdf_processed = False
-                else:
-                    st.warning("⚠️ Please upload at least one PDF file.")
-                    st.session_state.pdf_processed = False
-    
-        elif st.session_state.app_mode == "🎬 Video Analysis":
-            st.markdown("---")
-            st.markdown("### 🎬 Video Actions")
-            # Check if a video is ALREADY saved locally and ready
-            video_ready = (st.session_state.get("video_processed") and
-                           st.session_state.get("uploaded_video_uri") and
-                           os.path.exists(st.session_state.uploaded_video_uri))
-    
-            if video_ready:
-                st.success(f"Video Ready: {os.path.basename(st.session_state.uploaded_video_uri)}")
-                st.video(st.session_state.uploaded_video_uri) # Show the ready video
-                if st.button("Upload Different Video", key="upload_new_video"):
-                     # Cleanup handled by input_video_setup when new file is uploaded
-                     # Or explicitly cleanup here before showing uploader again
-                     safe_cleanup_dir(st.session_state.get("uploaded_video_temp_dir"))
-                     st.session_state.video_processed = False
-                     st.session_state.uploaded_video_uri = None
-                     st.session_state.uploaded_video_temp_dir = None
-                     st.rerun()
-            else:
-                 # Show uploader
-                 uploaded_video = st.file_uploader(
-                     "Upload Video for Analysis",
-                     type=SUPPORTED_VIDEO_TYPES,
-                     key="video_uploader",
-                     help=f"Supported formats: {', '.join(SUPPORTED_VIDEO_TYPES)}. Max size recommended: ~1GB"
-                 )
-                 if uploaded_video is not None:
-                      # Process immediately upon upload
-                      with st.spinner(f"⏳ Saving & verifying '{uploaded_video.name}'..."):
-                          if input_video_setup(uploaded_video): # Returns path on success
-                               st.rerun() # Rerun to show the "Ready" state and video preview
-                          # Else: input_video_setup shows error message
-    
-        st.markdown("---")
-        st.markdown("### ✨ Controls")
-        if st.button("Clear Chat History", key="clear_chat", type="secondary"):
-            reset_chat()
-            st.rerun()
-    
-        st.markdown("---")
-        st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
+   
     
     
     # --- Main Chat Area ---
