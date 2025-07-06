@@ -1041,6 +1041,6 @@ if st.session_state.api_key:
     elif st.session_state.app_mode == "💬 General Chat & Image":
         st.info("ℹ️ Ask general fitness/health questions, or upload an image above for analysis.")
 else:
-        # This message is shown when the app loads and no key is entered yet.
-        st.warning("👋 Welcome! Please enter your Google API Key in the sidebar to begin.")
-        st.info("This app requires your own Google API key to function. Your key is not stored or shared.")    
+    st.warning("👋 Welcome! Please enter your Google API Key in the sidebar to begin.")
+    st.info("Your API key is used only for this session and is not stored or shared.")
+    st.image("https://i.imgur.com/grm3s8s.png", caption="Enter your API Key in the sidebar to start.") # Optional: an image showing where to enter the key   
