@@ -249,7 +249,24 @@ if "api_key" not in st.session_state:
 with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
     st.markdown("---")
+        # ### ADD THIS NEW SECTION HERE ###
+    # =======================================================
+    st.header("🔑 API Configuration")
+    api_key_input = st.text_input(
+        "Enter your Google API Key", 
+        type="password", 
+        key="api_key_input",
+        help="You can get your key from Google AI Studio."
+    )
 
+    if api_key_input:
+        st.session_state.api_key = api_key_input
+        st.success("API Key saved for this session!")
+    # =======================================================
+    # ### END OF NEW SECTION ###
+    # =======================================================
+
+    st.markdown("---")
     # Mode Selection
     app_mode = st.radio(
         "Choose Interaction Mode:",
