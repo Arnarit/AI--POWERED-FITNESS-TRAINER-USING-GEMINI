@@ -17,7 +17,7 @@ import shutil # For robust directory cleanup
 
 # --- Environment Setup ---
 
-API_KEY = "AIzaSyBMQpBbREFI8NOKF1EYy2qp4H9lhJtFvRA"
+
 if not API_KEY:
     st.error("🔴 GOOGLE_API_KEY environment variable not set. Please configure it in your .env file or environment.")
     st.stop()
