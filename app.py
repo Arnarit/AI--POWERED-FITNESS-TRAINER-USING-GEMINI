@@ -15,17 +15,7 @@ import time
 import io
 import shutil # For robust directory cleanup
 
-# --- Environment Setup ---
-load_dotenv()
-API_KEY = os.getenv("GOOGLE_API_KEY")
-if not API_KEY:
-    st.error("🔴 GOOGLE_API_KEY environment variable not set. Please configure it in your .env file or environment.")
-    st.stop()
-try:
-    genai.configure(api_key=API_KEY)
-except Exception as e:
-    st.error(f"🔴 Error configuring Google AI. Check API Key validity and permissions: {e}")
-    st.stop()
+
 
 # --- Constants ---
 FAISS_INDEX_PATH = "faiss_index"
@@ -800,7 +790,21 @@ VIDEO_ANALYSIS_PROMPT = """
 with st.sidebar:
     st.title("AI Fitness Trainer 🧘‍♂️")
     st.markdown("---")
+     # --- NEW: API Key Input ---
+    if 'GOOGLE_API_KEY' not in st.session_state:
+        st.session_state['GOOGLE_API_KEY'] = ''
 
+    api_key = st.text_input(
+        "Enter your Google API Key",
+        type="password",
+        value=st.session_state['GOOGLE_API_KEY'],
+        help="Get your key from Google AI Studio."
+    )
+    
+    # Save the key to session state
+    if api_key:
+        st.session_state['GOOGLE_API_KEY'] = api_key
+    st.markdown("---")
     # Mode Selection
     app_mode = st.radio(
         "Choose Interaction Mode:",
@@ -911,7 +915,27 @@ with st.sidebar:
     st.markdown("---")
     st.info("ℹ️ Consult professionals for personalized fitness/medical advice.")
 
+# Check if the API key is provided in session state
+if not st.session_state['GOOGLE_API_KEY']:
+    st.info("👋 Welcome! Please enter your Google API Key in the sidebar to start.")
+    st.stop() # Stop the app execution until a key is entered
 
+# --- IF KEY IS PROVIDED, INITIALIZE MODELS AND RUN THE APP ---
+try:
+    # Use the key from session_state to configure everything
+    API_KEY = st.session_state['GOOGLE_API_KEY']
+    genai.configure(api_key=API_KEY)
+
+    # --- Model Initialization ---
+    base_model = genai.GenerativeModel("gemini-1.5-flash-latest")
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=API_KEY)
+    embedding_model_name = "models/text-embedding-004"
+    embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
+
+except Exception as e:
+    st.error(f"🔴 Error initializing with the provided API Key. Please check if it's valid. Details: {e}")
+    st.stop()
+    
 # --- Main Chat Area ---
 st.header(f" {st.session_state.app_mode}")
 st.markdown("---")
