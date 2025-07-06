@@ -239,9 +239,7 @@ if "current_chat_image" not in st.session_state:
     st.session_state.current_chat_image = None
 if "current_chat_image_parts" not in st.session_state:
      st.session_state.current_chat_image_parts = None
-if "messages" not in st.session_state:
-    # ... (all your existing session state initializations)
-if "api_key" not in st.session_state: # Add this line
+if "api_key" not in st.session_state: 
     st.session_state.api_key = None
 
 # =====================================================================
