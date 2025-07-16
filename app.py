@@ -37,9 +37,9 @@ SUPPORTED_VIDEO_MIMETYPES = [f"video/{ext}" for ext in SUPPORTED_VIDEO_TYPES]
 # --- Model Initialization ---
 try:
     # Model for general text/image/video generation (gemini-2.0-flash is good for multimodal)
-    base_model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+    base_model = genai.GenerativeModel("gemini-2.5-flash")
     # Model specifically for Langchain Q&A chain
-    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.7, google_api_key=API_KEY)
+    langchain_chat_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, google_api_key=API_KEY)
     # Model for embeddings
     embedding_model_name = "models/text-embedding-004" # Or other suitable embedding model
     embeddings = GoogleGenerativeAIEmbeddings(model=embedding_model_name, google_api_key=API_KEY)
