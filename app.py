@@ -9,14 +9,15 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
-
+from dotenv import load_dotenv
 import tempfile
 import time
 import io
 import shutil # For robust directory cleanup
 
 # --- Environment Setup ---
-API_KEY = "AIzaSyBMQpBbREFI8NOKF1EYy2qp4H9lhJtFvRA"
+load_dotenv()
+API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not API_KEY:
     st.error("🔴 GOOGLE_API_KEY environment variable not set. Please configure it in your .env file or environment.")
